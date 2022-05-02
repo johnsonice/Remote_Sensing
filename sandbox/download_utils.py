@@ -1,6 +1,6 @@
 import folium
 
-def Mapdisplay(center=[40, -100], dicc, Tiles="OpensTreetMap",zoom_start=10):
+def Mapdisplay(center, dicc, Tiles="OpensTreetMap",zoom_start=10):
     '''
     :param center: Center of the map (Latitude and Longitude).
     :param dicc: Earth Engine Geometries or Tiles dictionary
