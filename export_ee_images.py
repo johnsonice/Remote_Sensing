@@ -9,10 +9,13 @@ Created on Thu May  5 14:20:09 2022
 
 import ee
 #import ssl
-import time,sys
+import os,time,sys,ssl
+sys.path.insert(0, './libs')
 #from pathlib import Path
 import numpy as np
 import pandas as pd
+import config
+from utils import get_all_files
 #from .utils import load_clean_yield_data as load
 
 def _append_im_band(current, previous):
@@ -100,10 +103,25 @@ def export():
     
     return None
 
+class MODISExporter:
+    def __init__(self,collection_id=None):
+        self.collection_id = collection_id
+        try:
+            ee.Initialize()
+            print("The Earth Engine package initialized successfully!")
+        except ee.EEException:
+            print(
+                "The Earth Engine package failed to initialize! "
+                "Have you authenticated the earth engine?"
+            )
+    
+    def get_modis_image():
+        
+        return None
+
 #%%
 
 if __name__ == "__main__":
-    
 
     ee.Initialize()
     TEST = False
@@ -126,34 +144,55 @@ if __name__ == "__main__":
         
     
     #%%
-    folder_name = 'GEE_Resources_Crop_Yield'
+    
+    folder_name="crop_yield-data_image"
     locations_filepath="data/yield_data.csv"
     collection_id="MODIS/061/MOD09A1"
     scale=500
-    MAJOR_STATES = [5, 17, 18, 19, 20, 27, 29, 31, 38, 39, 46]
+    min_img_val=16000
+    max_img_val=-100
+    major_states_only=True
+    check_if_done=True
+    download_folder=os.path.join(config.MODIS_DATA_FOLDER,folder_name)
+    
     #%%
     imgcoll = ee.ImageCollection(collection_id) \
         .filterBounds(ee.Geometry.Rectangle(-106.5, 50, -64, 23)) \
         .filterDate("2002-12-31", "2016-8-4")
     # Get the number of images.
     count = imgcoll.size()
-    print('Count: ', str(count.getInfo())+'\n')
+    print('total band count: ', str(count.getInfo())+'\n')
     #%%
     img = imgcoll.iterate(_append_im_band)
     img = ee.Image(img)
-    print(len(img.getInfo()['bands']))
-    print(count.getInfo()*7)
+    print('total band count after appending: {}'.format(len(img.getInfo()['bands'])))
+    #print(count.getInfo()*7)
     
-    projection = img.select(['sur_refl_b01', 'sur_refl_b04', 'sur_refl_b03']).projection().getInfo()
+    # "clip" the values of the bands
+    # i don't quite get this max and min seems to be reversed########
+    if min_img_val is not None:
+        # passing en ee.Number creates a constant image
+        img_min = ee.Image(ee.Number(min_img_val))
+        img = img.min(img_min)
+    if max_img_val is not None:
+        img_max = ee.Image(ee.Number(max_img_val))
+        img = img.max(img_max)
+    #################################################################
+    
+    projection = img.select(0).projection().getInfo()
     crs = projection['crs']
     crsTransform = projection['transform']
     region = _get_regions() ## get use state and county vector file 
+    
     #%%
     df = pd.read_csv(locations_filepath) ## get yield data 
     county_data = np.unique(df[["State ANSI", "County ANSI"]].values, axis=0)
     county_data = [i for i in county_data if not pd.isna(i[1])] 
-    if MAJOR_STATES:
-        county_data = [i for i in county_data if i[0] in MAJOR_STATES] 
+    if config.MAJOR_STATES:
+        county_data = [i for i in county_data if i[0] in config.MAJOR_STATES] 
+    if check_if_done:
+        existing_files = get_all_files(download_folder,name_only=True)
+        county_data = [i for i in county_data if "{}_{}.tif".format(int(i[0]),int(i[1])) not in existing_files]
         
     #%%
     results = []
@@ -166,22 +205,28 @@ if __name__ == "__main__":
         file_region = ee.Feature(file_region.first())
         processed_img = img.clip(file_region)
         # Export the image, specifying scale and region.
-        try:
-            status = _export_one_image(processed_img,folder_name,fname,
-                              region=file_region.geometry(),scale=scale,
-                              crs=crs,crsTransform=crsTransform,
-                              fileFormat='GeoTIFF',maxPixels=1e13,
-                              log_interval=10)
-            
-        except Exception as e:
-            print(e)
-            status = 'error'
-            
+        for rep in range(3):
+            try:
+                status = _export_one_image(processed_img,folder_name,fname,
+                                  region=file_region.geometry(),scale=scale,
+                                  crs=crs,crsTransform=crsTransform,
+                                  fileFormat='GeoTIFF',maxPixels=1e13,
+                                  log_interval=10)
+                break
+            except (ee.ee_exception.EEException, ssl.SSLEOFError):
+                print(f"Retrying State {int(state_id)}, County {int(county_id)}")
+                status = 'error'
+                continue
+            except Exception as e :
+                print(e)
+                status = 'error'
+        
         results.append(status)
         
-    
     print('Finished : {} files'.format(len(results)))
-        
+    print(results)
+
+
             
             
         
