@@ -254,7 +254,7 @@ class MODISExporter:
                                      batch_n=self.batch_n)
 
         results = []
-        for state_id, county_id in county_data[:1]:
+        for state_id, county_id in county_data:
             status = _export_clip_country(img,region,state_id,county_id,
                                               self.folder_name,
                                               scale=self.scale,
