@@ -56,7 +56,6 @@ def run_test_example():
 def _append_im_band(current, previous):
     # Transforms an Image Collection with 1 band per Image into a single Image with items as bands
     # Author: Jamie Vleeshouwer
-
     # Rename the band
     previous = ee.Image(previous)
     current = current.select([0, 1, 2, 3, 4, 5, 6])
@@ -66,7 +65,26 @@ def _append_im_band(current, previous):
         current,
         previous.addBands(ee.Image(current)),
     )
-
+def _append_temp_band(current, previous):
+    # Rename the band
+    previous = ee.Image(previous)
+    current = current.select([0, 4])
+    # Append it to the result (Note: only return current item on first element/iteration)
+    return ee.Algorithms.If(
+        ee.Algorithms.IsEqual(previous, None),
+        current,
+        previous.addBands(ee.Image(current)),
+    )
+def _append_mask_band(current, previous):
+    # Rename the band
+    previous = ee.Image(previous)
+    current = current.select([0])
+    # Append it to the result (Note: only return current item on first element/iteration)
+    return ee.Algorithms.If(
+        ee.Algorithms.IsEqual(previous, None),
+        current,
+        previous.addBands(ee.Image(current)),
+    )
 
 def _export_one_image(processed_img,folder,name,region=None,
                       scale=None,crs=None,crsTransform=None,
@@ -155,8 +173,22 @@ def _export_clip_country(img,region,state_id,county_id,
     return status
 
 
-def _get_modis_image(collection_id,min_img_val,max_img_val):
+def _get_modis_image(collection_id,min_img_val,max_img_val,task_type='image'):
     
+    ## define task specific transformation functions 
+    task_to_func = {
+        "image": _append_im_band,
+        "mask": _append_mask_band,
+        "temperature": _append_temp_band,
+    }
+    
+    ## cehck keys 
+    if task_type in task_to_func.keys():
+        pass
+    else:
+        raise Exception('task must be one of the following: {}'.format(task_to_func.keys()))
+    
+    ## get image with filter on region and time range 
     imgcoll = ee.ImageCollection(collection_id) \
         .filterBounds(ee.Geometry.Rectangle(-106.5, 50, -64, 23)) \
         .filterDate("2002-12-31", "2016-8-4")
@@ -164,14 +196,15 @@ def _get_modis_image(collection_id,min_img_val,max_img_val):
     # Get the number of images.
     #count = imgcoll.size()
     #print('total band count: ', str(count.getInfo())+'\n')
-
-    img = imgcoll.iterate(_append_im_band)
+    
+    ## transfrom all images accross time dimention to bands 
+    img = imgcoll.iterate(task_to_func[task_type])
     img = ee.Image(img)
     #print('total band count after appending: {}'.format(len(img.getInfo()['bands'])))
     #print(count.getInfo()*7) 
-    
+    ##################################################################
     # "clip" the values of the bands
-    # i don't quite get this max and min seems to be reversed########
+    # i don't quite get this max and min seems to be reversed
     if min_img_val is not None:
         # passing en ee.Number creates a constant image
         img_min = ee.Image(ee.Number(min_img_val))
@@ -180,6 +213,7 @@ def _get_modis_image(collection_id,min_img_val,max_img_val):
         img_max = ee.Image(ee.Number(max_img_val))
         img = img.max(img_max)
     #################################################################
+    
     projection = img.select(0).projection().getInfo()
     crs = projection['crs']
     crsTransform = projection['transform']
@@ -217,12 +251,13 @@ class MODISExporter:
                  folder_name=None,
                  locations_filepath=None,
                  scale=500,
-                 min_img_val=16000,
-                 max_img_val=-100,
+                 min_img_val=None,
+                 max_img_val=None,
                  MAJOR_STATES=None,
                  check_if_done=True,
                  download_folder=None,
-                 batch_n='all'
+                 batch_n='all',
+                 task_type='image'
                  ):
         
         self.collection_id = collection_id
@@ -235,6 +270,7 @@ class MODISExporter:
         self.check_if_done=check_if_done
         self.download_folder=download_folder
         self.batch_n = batch_n
+        self.task_type = task_type
         
         try:
             ee.Initialize()
@@ -246,7 +282,7 @@ class MODISExporter:
             )
     
     def export(self):
-        img,crs,crsTransform= _get_modis_image(self.collection_id,self.min_img_val,self.max_img_val)
+        img,crs,crsTransform= _get_modis_image(self.collection_id,self.min_img_val,self.max_img_val,task_type=self.task_type)
         region = _get_regions() ## get use state and county vector file 
         county_data = get_county_ids(self.locations_filepath,check_if_done=self.check_if_done,
                                      MAJOR_STATES=self.MAJOR_STATES,
@@ -269,14 +305,14 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-b', '--n_batches', action='store', dest='n_batches',
                         default='all') # like 'all' '0_10' get bactch 0 from 10 batches  
-    parser.add_argument('-fn', '--folder_name', action='store', dest='folder_name',
-                        default='crop_yield-data_image')
+    # parser.add_argument('-fn', '--folder_name', action='store', dest='folder_name',
+    #                     default='crop_yield-data_image')
     parser.add_argument('-lf', '--locations_filepath', action='store', dest='locations_filepath',
                         default='data/yield_data.csv')
-    parser.add_argument('-cid', '--collection_id', action='store', dest='collection_id',
-                        default='MODIS/061/MOD09A1')
+    # parser.add_argument('-cid', '--collection_id', action='store', dest='collection_id',
+    #                     default='MODIS/061/MOD09A1')
     parser.add_argument('-t', '--task_type', action='store', dest='task_type',
-                        default='image')
+                        default='mask') ## mask temperature image
     args = parser.parse_args()    
     return args
 
@@ -291,20 +327,60 @@ if __name__ == "__main__":
     
     ## export modis data to google drive 
     args = parse_args()
-    E = MODISExporter(
-                        collection_id=args.collection_id,
-                        folder_name=args.folder_name,
-                        locations_filepath=args.locations_filepath,
-                        scale=500,
-                        min_img_val=16000,
-                        max_img_val=-100,
-                        MAJOR_STATES=config.MAJOR_STATES,
-                        check_if_done=True,
-                        download_folder=os.path.join(config.MODIS_DATA_FOLDER,args.folder_name),
-                        batch_n=args.n_batches
-                     ).export()
     
+    if args.task_type == 'image':
+        print('Working on download MODIS images')
+        E = MODISExporter(
+                            collection_id='MODIS/061/MOD09A1',
+                            folder_name='crop_yield-data_image',
+                            locations_filepath=args.locations_filepath,
+                            scale=500,
+                            min_img_val=16000,
+                            max_img_val=-100,
+                            MAJOR_STATES=config.MAJOR_STATES,
+                            check_if_done=True,
+                            download_folder=os.path.join(config.MODIS_DATA_FOLDER,'crop_yield-data_image'),
+                            batch_n=args.n_batches,
+                            task_type=args.task_type
+                         )
 
+        res = E.export()
+    elif args.task_type == 'mask':
+        print('Working on download MODIS landcover masks')
+        E = MODISExporter(
+                            collection_id='MODIS/006/MCD12Q1',
+                            folder_name='crop_yield-data_mask',
+                            locations_filepath=args.locations_filepath,
+                            scale=500,
+                            min_img_val=None,
+                            max_img_val=None,
+                            MAJOR_STATES=config.MAJOR_STATES,
+                            check_if_done=True,
+                            download_folder=os.path.join(config.MODIS_DATA_FOLDER,'crop_yield-data_mask'),
+                            batch_n=args.n_batches,
+                            task_type=args.task_type
+                         )
+
+        res = E.export()
+
+    elif args.task_type == 'temperature':
+        print('Working on download MODIS temperature data')
+        E = MODISExporter(
+                            collection_id='MODIS/MYD11A2',
+                            folder_name='crop_yield-data_temperature',
+                            locations_filepath=args.locations_filepath,
+                            scale=500,
+                            min_img_val=None,
+                            max_img_val=None,
+                            MAJOR_STATES=config.MAJOR_STATES,
+                            check_if_done=True,
+                            download_folder=os.path.join(config.MODIS_DATA_FOLDER,'crop_yield-data_temperature'),
+                            batch_n=args.n_batches,
+                            task_type=args.task_type
+                         )
+        res = E.export()
+    else:
+        raise Exception('task type key error!')
 
     #%%
     # import joblib

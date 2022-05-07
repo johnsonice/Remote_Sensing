@@ -21,14 +21,13 @@ import config
 
 if __name__ == "__main__":
     n_jobs = 50
-    
+    task_type = 'mask' ## mask or temperature or image
     ### construct cmds 
-    #chdir = "cd {}".format(config.CODE_ROOT)
-    # chdir = "cd {}".format('..')
     p_path = os.path.join(config.CODE_ROOT,'export_ee_images.py')
+    
     cmd_lines = []
     for i in range(n_jobs):
-        cmd_line = "python {} -b {}".format(p_path,'{}_{}'.format(i,n_jobs))
+        cmd_line = "python {} -b {} -t {}".format(p_path,'{}_{}'.format(i,n_jobs),task_type)
         #cmd_line = "{}&python export_ee_images.py -b {}".format(chdir,'{}_{}'.format(i,n_jobs))
         cmd_lines.append(cmd_line)
     #%%
