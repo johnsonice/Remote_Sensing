@@ -21,7 +21,7 @@ import config
 
 if __name__ == "__main__":
     n_jobs = 50
-    task_type = 'mask' ## mask or temperature or image
+    task_type = 'temperature' ## mask or temperature or image
     ### construct cmds 
     p_path = os.path.join(config.CODE_ROOT,'export_ee_images.py')
     

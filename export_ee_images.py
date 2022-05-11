@@ -382,20 +382,6 @@ if __name__ == "__main__":
     else:
         raise Exception('task type key error!')
 
-    #%%
-    # import joblib
-    # from joblib import Parallel, delayed
-    # number_of_cpu = 2#joblib.cpu_count()-2
-    
-    
-    # delayed_funcs = [delayed(_export_clip_country)(img,region,state_id,county_id,
-    #                                                folder_name,scale,
-    #                                                crs,crsTransform) for state_id,county_id in county_data[:10]]
-    # parallel_pool = Parallel(n_jobs=number_of_cpu,batch_size='auto')
-    # results = parallel_pool(delayed_funcs)
-    
-    # print('Finished : {} files'.format(len(results)))
-    # #print(results)
             
             
         
